@@ -1,0 +1,93 @@
+Bu kısımde POSTMAN kullanarak devam edelim.
+
+MongoDB'yi kullanabilmek için yeni bir Repository açalım.
+
+dotnet add package MongoDB.Driver 'ı terminale yazıp enter'a basalım.
+(catalog.csproj'u kontrol edersek kurulduğunu görebiliriz.)
+
+MongoDB client'ını kurup dependency'sini inject edelim.
+
+MongoDB'yi Docker image olarak kullanıyoruz.
+docker run -d --rm --name mongo -p 27017:27017 -v mongodbdata:/data/db mongo
+
+Eğer ki MongoDB'de veritabanını görüntülemek istersek VS Code eklentisini indirebiliriz.
+
+MongoDbItemsRepository.cs;
+
+using System;
+using System.Collections.Generic;
+using catalog.Entities;
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+namespace catalog.Repositories
+{
+    public class MongoDbItemsRepository : IItemsRepository
+    {
+        private const string databaseName = "catalog";
+        private const string collectionName = "items";
+
+        private readonly IMongoCollection<Item> itemsCollection;
+        private readonly FilterDefinitionBuilder<Item> filterBuilder = Builders<Item>.Filter;
+
+        public MongoDbItemsRepository(IMongoClient mongoClient)
+        {
+            IMongoDatabase database = mongoClient.GetDatabase(databaseName);
+            itemsCollection = database.GetCollection<Item>(collectionName);
+        }
+        public void CreateItem(Item item)
+        {
+            itemsCollection.InsertOne(item);
+        }
+
+        public void DeleteItem(Guid id)
+        {
+            var filter = filterBuilder.Eq(item => item.Id, id);
+            itemsCollection.DeleteOne(filter);
+        }
+
+        public Item GetItem(Guid id)
+        {
+            var filter = filterBuilder.Eq(item => item.Id, id);
+            return itemsCollection.Find(filter).SingleOrDefault();
+        }
+
+        public IEnumerable<Item> GetItems()
+        {
+            return itemsCollection.Find(new BsonDocument()).ToList();
+        }
+
+        public void UpdateItem(Item item)
+        {
+            var filter = filterBuilder.Eq(existingItem => existingItem.Id, item.Id);
+            itemsCollection.ReplaceOne(filter, item);
+        }
+    }
+}
+
+daha önceki geçici data'ların yerine artık MongoDB kullanacağız. O yüzden Startup.cs'de;
+
+...
+
+		public void ConfigureServices(IServiceCollection services)
+        {
+            BsonSerializer.RegisterSerializer(new GuidSerializer(BsonType.String));
+            BsonSerializer.RegisterSerializer(new DateTimeOffsetSerializer(BsonType.String));
+            
+            services.AddSingleton<IMongoClient>(serviceProvider => 
+            {
+                var settings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
+                return new MongoClient(settings.ConnectionString);
+            });
+            services.AddSingleton<IItemsRepository, MongoDbItemsRepository>();
+            services.AddControllers();
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "catalog", Version = "v1" });
+            });
+        }
+
+ilgili değişiklikleri yapıyoruz.
+
+POSTMAN'dan get/post/put/del işlemlerini deneyebiliriz.
+

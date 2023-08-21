@@ -1,0 +1,203 @@
+Kubernetes
+
+- Kubernetes Google tarafından GO dilinde geliştirilmiş Cloud Native Computing Foundation tarafından desteklenen mevcut konteyner haline getirilmiş uygulamalarınızı otomatik deploy etmek, sayılarını arttırıp azaltmak gibi işlemler ile birlikte yönetmenizi sağlayan bir Konteyner kümeleme (container cluster) aracıdır.
+
+Orchestration ise, Konteyner’ların node’lar içerisine dağıtılması ve yönetilmesinden sorumlu veya cluster yönetimi sağlayan yazılımdır diyebiliriz. (örneğin, kubernetes)
+
+Master veya Control Plane cluster yönetiminin yapıldığı yerdir.
+Master API Server, etcd, scheduler ve Controller Manager bileşenlerinden oluşur.
+
+Pod, içinde bir veya birden fazla container'ın çalıştığı en küçük Kubernetes birimidir. Bir Pod, birbirleriyle yakından ilişkili olan ve aynı Node üzerinde çalışması gereken container'lar için bir gruplama mekanizması sağlar.
+
+Bir kapsayıcı düzenleme aracı olarak Kubernetes, aşağıdaki gibi görevleri otomatikleştirmek ve yönetmek için kullanılabilir:
+
+- Konteyner dağıtımı
+- Konteyner kullanılabilirliği
+- Kaynak tahsisi
+- İzleme
+- Yük dengeleme
+- Konteyner etkileşiminin güvenliğini sağlama
+- Ana bilgisayarın kaynaklarına göre kapsayıcı boyutunun veya konumunun ayarlanması
+
+Docker -> Settings -> Kubernetes -> Enable Kubernetes -> Apply -> Install
+
+VS Code'da Terminal'de kubectl config current-context
+
+Ana dizin'de kubernetes klasörü açalım ve içerisinde catalog.yaml açalım.
+
+Not: YAML dil bağımsız bir veri değişim formatıdır. Herhangi bir programlama dili ile oluşturulan nesneler,  YAML formatında kolaylıkla temsil edilebilmektedir. YAML geniş veri tipi desteği sayesinde tüm diller arasında ortak olarak kullanılabilir olmakla birlikte, ayrıca insan gözüyle bakıldığında kolay okunabilir bir yapısı mevcuttur.
+YAML ile kompleks nesne yapıları temsil edilebileceği gibi, konfigürasyon amaçlı kullanılan formatlara alternatif olarak da kullanılabilmektedir.
+
+Password için secret'ı ayarlayalım.
+
+kubectl create secret generic catalog-secrets --from-literal=mongodb-password='Pass#word1'
+
+Not: Kubernetes Service: Servisler bir ya da daha fazla port’un bir ya da bir grup pod’a yönlendirilmesinden sorumlu bileşenlerdir. Açılan servis portlarına sadece cluster içerisinden erişelebileceği gibi aynı zamanda node üzerinden ya da load balancer üzerinden de erişim sunulabilir. Bu özellikleri sayesinden servisler podların erişim açısından grupladıkları gibi dışarıya açılabilmelerini de sağlamaktadırlar.
+
+catalog REST API'miz için gerekli tüm resource'larımızı kubernete'e deploy etmek için,
+
+catalog.yaml;
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-deployment
+spec:
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+    spec:
+      containers:
+      - name: catalog
+        image: acagatay33/catalog:v1
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 80
+        env:
+          - name: MongoDbSettings__Host
+            value: mongodb-service
+          - name: MongoDbSettings__Password
+            valueFrom:
+              secretKeyRef:
+                name: catalog-secrets
+                key: mongodb-password
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 80
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 80
+			
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: catalog
+  ports:
+  - port: 80
+    targetPort: 80
+
+bunu Kubernetes'e deploy etmek için ise terminal'de;
+
+cd/kubernetes
+kubectl apply -f .\catalog.yaml
+
+enter.
+
+deployment.apps/catalog-deployment created
+service/catalog-service created
+
+görürüz.
+
+kubectl get deployments
+NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
+catalog-deployment   0/1     1            0           50s
+kubectl get pods
+NAME                                  READY   STATUS    RESTARTS   AGE
+catalog-deployment-7cb78764f7-5jzpr   0/1     Running   0          91s
+
+bunun anlamı livenessProbe'muz Healthy fakat.
+readinessProbe'umuz değil.
+
+kubectl logs catalog-deployment-7cb78764f7-5jzpr ile sorunu arayalım.
+
+fail: Microsoft.Extensions.Diagnostics.HealthChecks.DefaultHealthCheckService[103]
+      Health check mongodb completed after 868.6666ms with status Unhealthy and description '(null)'
+	  
+Şimdi database'imizi declare etmenin vakti geldi.
+
+kubernetes klasörünün içerisinde mongodb.yaml açalım.
+
+Not: StatefulSet, pod'ların sırasını ve kimliğini koruyarak dağıtım, ölçeklendirme ve güncelleme süreçlerini yönetir. Pod'ları tek tek yönetebilir ve belirli bir sıra veya zamanlama dikkate alınarak işlem yapabilir. Bu, uygulamanın veri durumunu korurken operasyonel süreçleri kontrol etmeyi sağlar.
+
+Not: Persistent Volume: Herhangi bir node'a bağlı olmayan, kalıcı olarak veri depolamak için cluster'a bağladığımız komponent.
+
+Not: RWO (ReadWriteOnce): tek bir node tarafından okuma-yazma imkanı sağlar. ROX (ReadOnlyMany): birçok node tarafından okuma imkanı sağlar. RWX (ReadWriteMany): birçok node tarafından okuma-yazma imkanı sağlar.
+
+Not: Docker volume ve bind mount, Docker containerlarınızda saklamak için kullandığınız verileri kalıcı olarak depolamak ve erişmek için kullanılan iki farklı yöntemdir. Docker volume, Docker containerlarınızda saklamak için kullandığınız verilerin depolandığı bir alandır.
+
+Not: Headless service clusterIP ataması yapılmamış olan servistir. Headless Service DNS üzerinden sorgulandığı zaman bağlı olduğu bütün podların IPlerini cevap olarak döner.
+
+mongodb.yaml;
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb-statefulset
+spec:
+  serviceName: "mongodb-service"
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 27017
+        env:
+          - name: MONGO_INITDB_ROOT_USERNAME
+            value: "mongoadmin"
+          - name: MONGO_INITDB_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: catalog-secrets
+                key: mongodb-password
+        volumeMounts:
+          - mountPath: /data/db
+            name: data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]   
+        resources:
+          requests:
+            storage: 1Gi          
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+spec:
+  clusterIP: None
+  selector:
+    app: mongodb
+  ports:
+  - port: 27017
+    targetPort: 27017
+	
+terminal'de;
+
+kubectl apply -f .\mongodb.yaml
+
+ve
+
+kubectl get statefulsets
+NAME                  READY   AGE
+mongodb-statefulset   1/1     40s
+
+Ready olduğunu görürüz.
+

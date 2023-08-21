@@ -1,0 +1,206 @@
+Docker Nedir?
+
+- Docker en net tanımlamayla open source bir ‘container’ teknolojisidir. Docker, aynı işletim sistemi üzerinde, yüzlerce hatta binlerce birbirinden izole ve bağımsız containerlar sayesinde sanallaştırma sağlayan bir teknolojidir. Web uygulamalarımızın kolayca kurulumunu, testini, çalışmasını ve deploymentını sağlar. Bunun yanında sunucu maliyetlerini önemli ölçüde azaltır.
+
+Docker aşağıdakiler için kullanılır:
+
+- Daha az kaynakta birden çok iş yükü çalıştırma.
+- Yalıtım ve ayırma uygulamaları.
+- Geliştirme ve yayın döngüleri arasında tutarlılığı sağlamak için ortamları standart hale getirmek.
+- Geliştirme yaşam döngüsünü kolaylaştırma ve CI/CD iş akışlarını destekleme.
+- Çoklu bulut platformlarında çalışabilen son derece taşınabilir iş yükleri geliştirmek.
+
+Ek olarak, aşağıdaki şekillerde kullanılır:
+
+- Sanal makinelere uygun maliyetli bir alternatif.
+- Bir uygulama için bir sürüm kontrol sistemi.
+
+Docker Daemon:
+
+- Bütün CPU ve RAM vb gibi işletim sistemine ait işlerin yapıldığı bölümdür.
+
+Container(Kapsayıcı) Nedir:
+
+- Docker Daemon tarafından Linux çekirdeği içerisinde birbirinden izole olarak çalıştırılan process’lerin her birine verilen isimdir. Virtual Machine (Sanal Makina) analojisinde Docker’ı Hypervisor’e benzetirsek fiziksel sunucu üzerinde halihazırda koşturulmakta olan her bir işletim sisteminin (sanal sunucunun) Docker’daki karşılığı Container’dır.
+
+Image Nedir:
+
+- Container'lar layer halindeki Image’lardan oluşur. Docker Image ise container'lara kurulacak ve run edilecek olan uygulamaların veya OS’lerin image dosyalarıdır. Örnek verecek olursak mysql, mongodb, redis, ubuntu, mariadb vs.
+
+Docker Engine:
+
+- Kapsayıcı derleyip çalıştıran açık kaynaklı ana bilgisayar yazılımı. Docker Engine; Windows sunucularında ve Oracle Linux, CentOS, Debian, Fedora, RHEL, SUSE ve Ubuntu dahil olmak üzere çeşitli Linux işletim sistemlerindeki kapsayıcıları destekleyen istemci - sunucu uygulaması olarak hareket eder.
+
+Docker Kayıt Defteri:
+
+- Görüntüleri depolamaya ve indirmeye yönelik yer. Kayıt defteri, Docker görüntülerini depolayıp dağıtan durum bilgisi olmayan ve ölçeklenebilir bir sunucu tarafı uygulamasıdır.
+
+Docker Hub:
+
+- Docker Hub, Docker imajlarının depolanması, paylaşılması ve yönetilmesi için bir bulut tabanlı hizmettir. Docker Hub, açık kaynaklı bir topluluk tarafından sağlanan bir hizmettir ve kullanıcılar Docker imajlarını kolayca paylaşabilir, keşfedebilir ve indirebilir.
+
+VS Code'a Docker extension'u indirelim.
+
+View -> Command Palette -> >docker: add docker files to workspace 
+
+->.NET:ASP.NET Core -> Linux -> 80 -> No
+
+Yeni dosyalar geldiğini görürüz.
+
+Dockerfile;
+
+FROM mcr.microsoft.com/dotnet/aspnet:5.0 AS base
+WORKDIR /app
+EXPOSE 80
+
+ENV ASPNETCORE_URLS=http://+:80
+
+FROM mcr.microsoft.com/dotnet/sdk:5.0 AS build
+ARG configuration=Release
+WORKDIR /src
+COPY ["catalog/catalog.csproj", "catalog/"]
+RUN dotnet restore "catalog/catalog.csproj"
+COPY . .
+WORKDIR "/src/catalog"
+RUN dotnet build "catalog.csproj" -c $configuration -o /app/build
+
+FROM build AS publish
+ARG configuration=Release
+RUN dotnet publish "catalog.csproj" -c $configuration -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "catalog.dll"]
+
+- Dockerfile, basit bir metin dosyasıdır. Uygulamaların imajını oluşturmak için bu dosya kullanılır.
+
+FROM: Baz alacağımız imajı çekmek için bu komut kullanılır. Bu satırdan sonra yazılan komutlar bu imaj tarafından kullanılır. Bu yüzden Dockerfile’daki ilk komut FROM olmalıdır. Dockerfile birden fazla imaj içerebileceğinden bu komut birden fazla kullanılarak Base imajlar Docker Hub üzerinden çekilebilir.
+
+WORKDIR: Bu komut ile Working Directory’i değiştirilir. Container içerisinde belirtilen bu Path’e geçiş yapılır. Eğer belirtilen Path mevcut değilse öncelikle oluşturulur sonrasında bu Path’e geçiş yapılır.
+
+COPY: Host üzerindeki dosyaları veya klasörleri kaynak adresinden imaj sistemdeki hedef adrese kopyalanması sağlar.
+
+RUN: Yeni bir katman ve imaj oluşturarak parametre olarak aldığı komutları çalıştırır. Genellikle yazılım paketlerini indirmek için kullanılır.
+
+EXPOSE: Container çalıştığında hangi portu dinlemesi gerektiğini bu komut aracağıyla belirtiriz.
+
+ENTRYPOINT: Çalıştırılabilir bir imaj oluşturulur. Imaj çalıştırıldığında bu komut aracığıyla spesifik olarak verilen komutları ve parametreleri kullanarak yaşam döngüsüne devam eder. Kullanıcı imajı çalıştırdığında –entrypoint parametresini geçmeden bu komutu veya parametreleri direkt olarak ezemez. 
+
+Dockerfile'ı aşağıdaki şekilde sadeleştirebiliriz.
+
+FROM mcr.microsoft.com/dotnet/aspnet:5.0 AS base
+WORKDIR /app
+EXPOSE 80
+
+FROM mcr.microsoft.com/dotnet/sdk:5.0 AS build
+WORKDIR /src
+COPY ["catalog.csproj", "./"]
+RUN dotnet restore "catalog.csproj"
+COPY . .
+RUN dotnet publish "catalog.csproj" -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "catalog.dll"]
+
+---
+
+.dockerignore: Container içerisine eklenmesini istemediğimiz dosyalar
+.dockerignore isimli dosya içerisinde belirtilebilir.
+
+**/.classpath
+**/.dockerignore
+**/.env
+**/.git
+**/.gitignore
+**/.project
+**/.settings
+**/.toolstarget
+**/.vs
+**/.vscode
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/bin
+**/charts
+**/docker-compose*
+**/compose*
+**/Dockerfile*
+**/node_modules
+**/npm-debug.log
+**/obj
+**/secrets.dev.yaml
+**/values.dev.yaml
+LICENSE
+README.md
+
+Artık image'ımızı oluşturmaya hazırız.
+
+Terminal'de;
+
+docker build -t catalog:v1 .
+yazıp enter.
+
+Ayrıca MongoDB için de bir container'a ihtiyacımız var.
+
+Not: Docker, containerların bağlantısını sağlamak için birçok araç sunar. Bu araçlar arasında en önemlilerinden biri "Docker Network" olmaktadır. Docker Network, containerlar arasında haberleşmeyi sağlamak için kullanılır. Bu sayede containerlar, aynı ağ üzerinde oldukları takdirde birbirleriyle haberleşebilirler.
+
+yine terminal'de;
+docker network create net5tutorial yazıp enter.
+
+Artık MongoDB için kullandığımız önceki docker'ı durduralım.
+
+docker stop mongo yazıp enter.
+
+docker run -d --rm --name mongo -p 27017:27017 -v mongodbdata:/data/db -e MONGO_INITDB_ROOT_USERNAME=mongoadmin -e MONGO_INITDB_ROOT_PASSWORD=Pass#word1 --network=net5tutorial mongo
+
+yazıp enter'lar isek MongoDB'yi network'e katmış oluruz.
+
+Şimdi container'dan MongoDB ile konuşmamız lazım. localhost'u artık kullanamayız fakat -e ile environment variable tanımlayıp appsettings.json'daki MongoDbSettings'i override edebiliriz.
+
+Password ise secret manager'da tutuluyor ve bu yüzden sadece development ortamında kullanılabilir. Docker image'ımız ise production ortamında. Aynı şekilde -e ile çözeriz.
+
+Terminal'de;
+docker run -it --rm -p 8080:80 -e MongoDbSettings:Host=mongo -e MongoDbSettings:Password=Pass#word1 --network=net5tutorial catalog:v1
+
+Artık POSTMAN'de http://localhost:8080/items 'e istek atıp test edebiliriz.
+
+http ve https redirection'un da olmadığını görürüz.
+
+---
+
+Peki bu docker image'i diğer insanlarla nasıl paylaşırız?
+
+docker hub'a abone olalım.
+
+Terminal'de docker login ile giriş yapalım.
+
+Not: Bu Docker Image Tag'i, Docker Image versiyonlarını ayırt etmeye yarar. Bu Tag'ler genellikle Image için kullanılan İşletim Sistemi ve kodun sürümünü içerir.
+
+docker tag catalog:v1 acagatay33/catalog:v1
+
+bu tag işlemi ile artık image'ımızı Docker Hub'a push'layabiliriz.
+
+docker push acagatay33/catalog:v1 ile enter.
+
+Ve artık Hub'da repositories kısmında görebiliriz.
+
+Şimdi bu iki image'i sistemden silip bir başka kullanıcıymış gibi Hub'dan pull edelim.
+
+docker rmi acagatay33/catalog:v1
+ve
+docker rmi catalog:v1
+
+docker logout
+
+image zaten public olduğundan çekebilmemiz lazım.
+
+docker run -it --rm -p 8080:80 -e MongoDbSettings:Host=mongo -e MongoDbSettings:Password=Pass#word1 --network=net5tutorial acagatay33/catalog:v1
+
+Local olarak bulamadığını söyleyip Hub'dan çekecektir.
+
+POSTMAN'den test edebiliriz.
+
+

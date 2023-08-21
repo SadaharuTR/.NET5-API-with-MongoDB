@@ -1,0 +1,285 @@
+POST, PUT and DELETE and Validate the Values of DTO Properties
+
+Post İşlemi:
+
+IItemRespository.cs'e ekleme işlemini yapacağımız fonksiyonun imzasını ekleyelim.
+
+using System.Collections.Generic;
+using System;
+using catalog.Entities;
+
+namespace catalog.Repositories
+{
+    public interface IItemsRepository
+    {
+        Item GetItem(Guid id);
+        IEnumerable<Item> GetItems();
+        void CreateItem(Item item); //burada
+    }
+}
+
+sonra bunu InMemItemsRepository'de implement edelim.
+...
+		public void CreateItem(Item item)
+        {
+            items.Add(item);
+        }
+...
+
+sonra ise DTO'sunu oluşturalım.
+
+namespace catalog.Dtos
+{
+    public record CreateItemDto
+    {
+        public string Name { get; init; }
+        public decimal Price { get; init; }
+    }
+}
+
+Burada ItemsController.cs'e gidip ilgili Post metodunu yazmamız lazım.
+
+...
+
+        //POST /items
+        [HttpPost]
+        public ActionResult<ItemDto> CreateItem(CreateItemDto itemDto)
+        {
+            Item item = new(){
+                Id = Guid.NewGuid(),
+                Name = itemDto.Name,
+                Price = itemDto.Price,
+                CreatedDate = DateTimeOffset.UtcNow
+            };
+
+            repository.CreateItem(item);
+
+            return CreatedAtAction(nameof(GetItem), new { id = item.Id }, item.AsDto());
+        }
+...
+
+Post http methodunu resource’umuza yeni bir item eklemek istediğmiz zaman kullanılırız. 
+Resource’umuzu Post işlemlerine açmak için oluşturduğumuz action’a HttpPost attribute'unu eklememiz yeterlidir. 
+
+Swagger'a dönelim.
+
+{
+  "name": "Platinium Sword",
+  "price": 35
+}
+'i post ile execute edelim.
+
+Request URL,
+https://localhost:5001/items
+
+Response Body
+{
+  "id": "4b879a29-ebd1-4160-8c55-842e21651c5f",
+  "name": "Platinium Sword",
+  "price": 35,
+  "createdDate": "2023-08-18T12:14:41.2764781+00:00"
+}
+
+Post işlemi sonucu Status Code olarak 201 dönmemiz gerekiyor. Bununla birlikte ilgili resource bilgilerini de dönmemiz gerekiyor. Ve son olarak Respose-Header Location field ile post edilen resource için URL bilgisini dönmemiz gerekiyor. CreatedAtAction methodu'da bu işe yarar.
+
+Response header
+
+content-type: application/json; charset=utf-8 
+ date: Fri18 Aug 2023 12:14:40 GMT 
+ location: https://localhost:5001/items/4b879a29-ebd1-4160-8c55-842e21651c5f 
+ server: Kestrel 
+ 
+Bunu GET /items/{id} 'de yukarıdaki location'daki 4b879a29-ebd1-4160-8c55-842e21651c5f 
+id'si ile denersek;
+
+az önce ürettiğimiz verilere erişiriz.
+
+Fakat name ya da price bilgileri olmadan post edersek null dönecektir.
+Bu istenilen bir durum değildir.
+
+Bunu Data Annotations'ları kullanarak çözebiliriz.
+
+CreateItem.Dto.cs'a dönersek ve Data Annotation'lar ile yeniden düzenlersek;
+
+using System.ComponentModel.DataAnnotations;
+
+namespace catalog.Dtos
+{
+    public record CreateItemDto
+    {
+        [Required]
+        public string Name { get; init; }
+        [Required]
+        [Range(1, 1000)]
+        public decimal Price { get; init; }
+    }
+}
+
+böylelikle Name ve Price'ın mutlaka girilmesi gerektiğini ve ayrıca Price'ın hangi değer aralığında olması gerektiğini belirtmiş oluyoruz.
+
+Ayrıca controller'a gelecek verilerin değerlerini de korumuş oluyoruz.
+
+Swagger'da tekrar dan benzer eksik bir istek atalım;
+
+Request body
+
+{
+  "price": 0
+}
+
+Response body'de;
+
+{
+  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "traceId": "00-0283f299451e4842b2d5c6cfc2de7e09-586e161ce50fae47-00",
+  "errors": {
+    "Name": [
+      "The Name field is required."
+    ],
+    "Price": [
+      "The field Price must be between 1 and 1000."
+    ]
+  }
+}
+
+400 bad request error hatasını alırız.
+
+---
+
+Update İşlemi;
+
+Önce Best Practice açısından UpdateItemDto.cs'i oluşturalım.
+
+using System.ComponentModel.DataAnnotations;
+
+namespace catalog.Dtos
+{
+    public record UpdateItemDto
+    {
+        [Required]
+        public string Name { get; init; }
+        [Required]
+        [Range(1, 1000)]
+        public decimal Price { get; init; }
+    }
+}
+
+IItemRespository.cs'e update işlemi için kullanacağımız fonksiyonun imzasını ekleyelim.
+
+using System.Collections.Generic;
+using System;
+using catalog.Entities;
+
+namespace catalog.Repositories
+{
+    public interface IItemsRepository
+    {
+        Item GetItem(Guid id);
+        IEnumerable<Item> GetItems();
+        void CreateItem(Item item);
+        void UpdateItem(Item item); //işte burada
+    }
+}
+
+InMemItemsRepository.cs'de bu imzayı implement edelim ve düzenleyelim.
+
+...
+
+		public void CreateItem(Item item)
+        {
+            items.Add(item);
+        }
+		
+		//burada
+        public void UpdateItem(Item item)
+        {
+            var index = items.FindIndex(existingItem => existingItem.Id == item.Id);
+            items[index] = item;
+        }
+    }
+}
+
+Daha sonra controller'a gidelim ve;
+
+...
+        // PUT /items/{id}
+        [HttpPut("{id}")]
+        public ActionResult UpdateItem(Guid id, UpdateItemDto itemDto){
+            var existingItem = repository.GetItem(id);
+            if(existingItem is null)
+            {
+                return NotFound();
+            }
+            Item updatedItem = existingItem with
+            {
+                Name = itemDto.Name,
+                Price = itemDto.Price
+            };
+
+            repository.UpdateItem(updatedItem);
+            return NoContent(); //geriye bir şey döndürmeye gerek yok.
+			//Swagger'da 204 mesajını alırsak çalışmış demektir.
+        }
+    }
+}
+
+SwaggerUI'da çalışıp çalışmadığını deneyelim.
+
+---
+
+Delete İşlemi
+
+Burada sadece id üzerinden işlem yaptığımız için yeni bir DTO oluşturmaya gerek yok.
+
+IItemRepository.cs'de;
+
+using System.Collections.Generic;
+using System;
+using catalog.Entities;
+
+namespace catalog.Repositories
+{
+    public interface IItemsRepository
+    {
+        Item GetItem(Guid id);
+        IEnumerable<Item> GetItems();
+        void CreateItem(Item item);
+        void UpdateItem(Item item); 
+        void DeleteItem(Guid id);    
+    }
+}
+
+imzayı ekleyip,
+
+InMemItemsRepository.cs'de implement edip ve düzenleyip,
+...
+		public void DeleteItem(Guid id)
+        {
+            var index = items.FindIndex(existingItem => existingItem.Id == id);
+            items.RemoveAt(index);
+        }
+	}
+}
+
+en sonda controller'da route'ları ayarlayıp,
+
+...
+
+        // DELETE /items/
+        [HttpDelete("{id}")]
+        public ActionResult DeleteItem(Guid id)
+        {
+            var existingItem = repository.GetItem(id);
+            if(existingItem is null)
+            {
+                return NotFound();
+            }
+
+            repository.DeleteItem(id);
+            return NoContent();
+        }
+    }
+}
+

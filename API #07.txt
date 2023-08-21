@@ -1,0 +1,229 @@
+Secrets and Health Checks
+
+Secret Manager Tool Nedir?
+
+- Web uygulamalarında statik olan verileri tekrar tekrar yazmak yerine bir merkezde depolayarak kullanmayı tercih ederiz. Asp.NET Core uygulamalarında bu merkez genellikle ‘appsettings.json’ dosyası olmaktadır. Bu dosya içerisine yazılan değerler her ne olursa olsun uygulama publish edildiği taktirde çıktıdan erişilebilir vaziyette olacaktır. Dolayısıyla bizler statik verilerimizi ‘appsettings.json’ içerisinde tutabiliriz lakin kritik verilerimiz için burasının pekte ehemmiyetli bir yer olmadığı aşikardır.
+
+- Development sürecinde kritik verilerimizi Secret Manager Tool’un sağlamış olduğu ‘secrets.json’ dosyası sayesinde uygulamadan ayırabilir ve böylece ‘appsettings.json’a erişilse dahi kritik verilerimize erişilemeyeceğinden dolayı güvenli bir şekilde depolamayı sağlamış oluruz. Her ne kadar ‘secrets.json’ dosyasındaki veriler uygulama içerisinde tutulmasada, runtime’da uygulama ayağa kaldırıldığı anda ‘appsettings.json’ dosyası ile ‘secrets.json’ dosyası birleştirilerek ilgili veriler uygulama için erişilebilir olacaktır. Nihayetinde kritik verilerin kötü niyetli kişiler tarafından erişimine kesin bir engel koyulmuş olunacaktır.
+
+Development'da iken mevcut docker'ı silip yeniden açalım.
+terminal'de;
+docker stop mongo ve
+docker volume rm mongodbdata yazıp (ayrı ayrı) enter'a basalım.
+
+docker run -d --rm --name mongo -p 27017:27017 -v mongodbdata:/data/db -e MONGO_INITDB_ROOT_USERNAME=mongoadmin -e MONGO_INITDB_ROOT_PASSWORD=Pass#word1 mongo
+
+yazıp enter'a basınca artık Authentication Enabled bir database'e docker image üzerinden sahip olmuş olduk.
+
+dotnet user-secrets init 
+ile de Secret'i yükleyelim. catalog.csproj'dan kontrol edelim.
+
+dotnet user-secrets set MongoDbSettings:Password Pass#word1
+enter.
+
+Artık Secret'ımız tamam.
+
+Şimdi bunları service'e eklemek kaldı.
+
+MongoDbSettings.cs'e gidip;
+
+namespace catalog.Settings
+{
+    public class MongoDbSettings
+    {
+        public string Host { get; set; }
+        public int Port { get; set; }
+        public string User { get; set; }
+        public string Password { get; set; }
+        public string ConnectionString
+        {
+            get
+            {
+                return $"mongodb://{User}:{Password}{Host}:{Port}";
+            }
+        }
+    }
+}
+
+değişiklikleri yapalım.
+
+Çalışıp çalışmadığını görmek için POSTMAN'de bir post işlemi yapalım.
+
+---
+
+Health Checks
+
+“Health Check” bizlere,
+bir uygulamanın veya sistemin sağlıklı çalışıp çalışmadığını kontrol imkanı sağlar.
+Ayrıca uygulamanın sağlık durumunu sorgulayabileceğimiz bir endpoint sunar.
+
+Basit bir örnek ile kontrol edebilecekleriniz;
+- Uygulamanız için kulladığın bir veritabanı veya servisin durumunu
+- Uygulamanızın çalıştığı environment ile ilgili hafıza ve disk durumunu
+- Uygulamanın kendi durumunu vs.
+
+Not: Endpoint, api üzerinde belirli bir amaç için oluşturulan metodlara verilen isimdir.
+
+Startup.cs'de ConfigureServices()'a;
+...
+		public void ConfigureServices(IServiceCollection services)
+        {
+            BsonSerializer.RegisterSerializer(new GuidSerializer(BsonType.String));
+            BsonSerializer.RegisterSerializer(new DateTimeOffsetSerializer(BsonType.String));
+            
+            services.AddSingleton<IMongoClient>(serviceProvider => 
+            {
+                var settings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
+                return new MongoClient(settings.ConnectionString);
+            });
+            services.AddSingleton<IItemsRepository, MongoDbItemsRepository>();
+            services.AddControllers(options => {
+                options.SuppressAsyncSuffixInActionNames = false;
+            });
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "catalog", Version = "v1" });
+            });
+			//alttaki satırı ekleyelim.
+            services.AddHealthChecks();
+        }
+...
+
+Sonra da Configure() içerisine middleware'ini ekleyelim.
+
+			app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+                endpoints.MapHealthChecks("/health");
+            });
+
+POSTMAN'de https://localhost:5001/health'a istek attığımızda
+Body'de Healthy yazdığını görürüz.
+
+Basit bir Health Check yaptık.
+
+Veritabanımızın da sağlıklı çalışıp çalışmadığını kontrol etmek için ekstradan terminal'de;
+
+dotnet add package AspNetCore.HealthChecks.MongoDb yazıp enter.
+
+Daha detaylı bir Health Check için,
+
+Startup.cs;
+
+using System;
+using System.Linq;
+using System.Net.Mime;
+using System.Text.Json;
+using catalog.Repositories;
+using catalog.Settings;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi.Models;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
+using MongoDB.Driver;
+using SharpCompress.Common;
+
+namespace catalog
+{
+    public class Startup
+    {
+        public Startup(IConfiguration configuration)
+        {
+            Configuration = configuration;
+        }
+
+        public IConfiguration Configuration { get; }
+
+        // This method gets called by the runtime. Use this method to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            BsonSerializer.RegisterSerializer(new GuidSerializer(BsonType.String));
+            BsonSerializer.RegisterSerializer(new DateTimeOffsetSerializer(BsonType.String));
+            var mongoDbSettings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
+
+            services.AddSingleton<IMongoClient>(serviceProvider =>
+            {
+                return new MongoClient(mongoDbSettings.ConnectionString);
+            });
+            services.AddSingleton<IItemsRepository, MongoDbItemsRepository>();
+            services.AddControllers(options =>
+            {
+                options.SuppressAsyncSuffixInActionNames = false;
+            });
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "catalog", Version = "v1" });
+            });
+
+            services.AddHealthChecks()
+                    .AddMongoDb(mongoDbSettings.ConnectionString, name: "mongodb", timeout: TimeSpan.FromSeconds(3),
+                    tags: new[] { "ready" });
+
+        }
+
+        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+                app.UseSwagger();
+                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "catalog v1"));
+            }
+
+            app.UseHttpsRedirection();
+
+            app.UseRouting();
+
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+
+                endpoints.MapHealthChecks("/health/ready", new HealthCheckOptions
+                {
+                    Predicate = (check) => check.Tags.Contains("ready"),
+                    ResponseWriter = async (context, report) =>
+                    {
+                        var result = JsonSerializer.Serialize(
+                            new
+                            {
+                                status = report.Status.ToString(),
+                                checks = report.Entries.Select(entry => new
+                                {
+                                    name = entry.Key,
+                                    status = entry.Value.Status.ToString(),
+                                    exception = entry.Value.Exception != null ? entry.Value.Exception.Message : "none",
+                                    duration = entry.Value.Duration.ToString()
+                                })
+                            }
+                        );
+                        
+                        context.Response.ContentType = MediaTypeNames.Application.Json;
+                        await context.Response.WriteAsync(result);
+                    }
+                });
+
+                endpoints.MapHealthChecks("/health/live", new HealthCheckOptions
+                {
+                    Predicate = (_) => false
+                });
+            });
+        }
+    }
+}
+
+Terminal'de docker stop mongo yazıp POSTMAN'de Unhealthy durumunu,
+
+docker run -d --rm --name mongo -p 27017:27017 -v mongodbdata:/data/db -e MONGO_INITDB_ROOT_USERNAME=mongoadmin -e MONGO_INITDB_ROOT_PASSWORD=Pass#word1 mongo
+
+ile de tekrardan healthy durumunu kontrol edebiliriz.
+

@@ -1,0 +1,184 @@
+Dependency Injection and DTOs
+
+- Dependency injection kaba tabir ile bir sınıfın/nesnenin bağımlılıklardan kurtulmasını amaçlayan ve o nesneyi olabildiğince bağımsızlaştıran bir programlama tekniği/prensibidir.
+
+- Dependency Injection uygulayarak; bir sınıfının bağımlı olduğu nesneden bağımsız hareket edebilmesini sağlayabilir ve kod üzerinde olası geliştirmelere karşın değişiklik yapma ihtiyacını ortadan kaldırabilirsiniz.
+
+Not: Dependency Inversion Prensibi:
+
+Bir sınıfın, metodun ya da özelliğin, onu kullanan diğer sınıflara karşı olan bağımlılığı en aza indirgenmelidir. Bir alt sınıfta yapılan değişiklikler üst sınıfları etkilememelidir.
+
+Yüksek seviye sınıflarda bir davranış değiştiğinde, alt seviye davranışların bu değişime uyum sağlaması gerekir. Ancak, düşük seviye sınıflarda bir davranış değiştiğinde, üst seviye sınıfların davranışında bir bozulma meydana gelmemelidir.
+
+Dependency Inversion, yani üst sınıflar, alt seviyeli sınıflara bağlı olmamalı, çözüm ise her ikisi de soyut kavramlar üzerinden yönetilebilmelidir. Yüksek seviye ve düşük seviye sınıflar arasında bir soyutlama katmanı oluşturabiliriz.
+
+Üst Seviye Sınıflar -> Soyutlama Katmanı -> Düşük Seviye Sınıfları
+
+Projemize dönersek yukarıdaki bilgileri uygulamak için interface'lere ihtiyacımız olacaktır.
+
+Respositories klasörünün içerisinde IItemRepository.cs oluşturalım.
+
+using System.Collections.Generic;
+using System;
+using catalog.Entities;
+
+namespace catalog.Repositories
+{
+    public interface IItemsRepository
+    {
+        Item GetItem(Guid id);
+        IEnumerable<Item> GetItems();
+    }
+}
+
+daha sonra controller'ımıza gidip,
+namespace catalog.Controllers
+{
+    [ApiController]
+    [Route("items")]
+    public class ItemsController : ControllerBase
+    {
+        private readonly IItemsRepository repository;
+        public ItemsController(IItemsRepository repository)
+        {
+            this.repository = repository;
+        }
+...
+
+değişikliklerini yapalım.
+
+InMemItemsRepository.cs'de ise;
+
+public class InMemItemsRepository : IItemsRepository //'i implement etmeyi unutmayalım.
+{...}
+
+Bu yaptıklarımızı Startup.cs'e gidip register etmemiz lazım.
+
+Ön Not: 
+Singleton :Nesne yönelimli programlamada yazılan bir sınıf örneğinin her seferinde yeniden kurulmasını ve her seferinden farklı sınıf örneğinin oluşturulmasını engelleyen yani sınıf örneğinin sadece bir kere kurulmasını sağlayan tasarım desenine denir.
+
+Bu service'imizi register etmek için de Startup.cs içindeki ConfigureServices()'i kullanalım.
+
+public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddSingleton<IItemsRepository, InMemItemsRepository>();
+            services.AddControllers();
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "catalog", Version = "v1" });
+            });
+        }
+...
+
+Bu şekilde F5 ile çalıştırıp SwaggerUI'a gidelim.
+
+GET /items'ı execute edip gelen response body'den bir id seçelim.
+
+29a1164f-38ad-42e1-b26b-b43e82596c41'si olsun.
+
+GET /items/{id} 'ye gidip id'mizi girelim ve execute edelim.
+
+Request URL : https://localhost:5001/items/29a1164f-38ad-42e1-b26b-b43e82596c41
+
+Response body'de ilgili id'ye karşılık gelen sonucu görebiliriz.
+
+{
+  "id": "29a1164f-38ad-42e1-b26b-b43e82596c41",
+  "name": "Iron Sword",
+  "price": 20,
+  "createdDate": "2023-08-18T10:36:49.3997881+00:00"
+}
+
+Fakat bu şekilde item entity'mizi direkt bir şekilde dışarıya göstermiş bulunuyoruz.
+
+Ayrıca bir şekilde bu client tarafı ile bir contract halinde olduğumuzdan herhangi bir field ya da property eklemek istediğimizde bu contract'i de bozmuş olacağız.
+
+---
+
+DTOs(Data Transfer Object)
+
+- Yazılım geliştirmede DTO (Data Transfer Object) kullanılmasının nedeni veri transferidir. Örneğin, bir client uygulamanın bir sunucudan veri alması veya sunucuya veri göndermesi gerektiğinde, DTO’lar veri taşıma işlemini etkin ve düzenli bir şekilde gerçekleştirmeye yardımcı olur.
+
+- DTO nesneleri API tabanlı geliştirmelerimizin olmazsa olmazlarındandır.
+
+- Entity sınıflarımızı API'ler aracılığıyla dış dünyaya açmak bir güvenlik açığıdır.
+
+- Entity sınıflarını controller ve servis katmanında kullanmamız bir takım hatalara neden olabilir.
+
+- Entity sınıfımızda bazı alanlar bunlar (createdAt , createdBy, updatedBy gibi log benzeri field’lar) bizim iç modelimizi ya da veritabanımızı ilgilendiriyor olabilir bundan dolayı gereksiz alanları boşu boşuna client tarafına göndermememiz gerekir.
+
+Ayrıca ilerleyen zamanlarda modelimize yeni bir alan (field) eklediğimizi düşünelim,
+bize client olan bütün uygulamalarda değişiklik yapılması gerekecektir. İşte bunlardan dolayı DTO nesnelerine ihtiyaç duyulur.
+
+- Katmanlar Arası Bağımlılığın Azaltılması ise diğer bir önemli etkendir. Yazılım sistemleri genellikle katmanlar halinde organize edilir (örneğin, veritabanı katmanı, iş mantığı katmanı, sunum katmanı). DTO’lar, bu katmanlar arasında bağımlılığı azaltmaya yardımcı olur. Örneğin, veritabanı varlıkları (entity) iş mantığı katmanına geçirilmez, bunun yerine DTO’lar kullanılır. Bu, katmanlar arasındaki sıkı bağımlılığı azaltır ve değişikliklerin daha kolay yönetilmesini sağlar.
+
+Ön Not: Extension Methods kavramının Türkçe anlamı Genişletilebilir Metotlardır. Mevcut bir class ya da struct üzerinde değişiklik yapmadan yeni metotlar eklememizi sağlayan bir yapıdır. Bu metodları kullanarak hem ekstra iş yükünden kurtulmuş oluruz, hem de sürekli aynı kodları yazmak zorunda kalmayız. 
+
+Bu yüzden ana dizinde (yani catalog klasöründe) bir Extensions.cs oluşturalım.
+
+using catalog.Dtos;
+using catalog.Entities;
+
+namespace catalog
+{
+    public static class Extensions{
+        //this method receives an item and returns its ItemDto version.
+        public static ItemDto AsDto(this Item item)
+        {
+            return new ItemDto{
+                Id = item.Id,
+                Name = item.Name,
+                Price = item.Price,
+                CreatedDate = item.CreatedDate
+            };
+        }
+    }
+}
+
+ve bunu ItemsController.cs'e geri dönüp GET metotlarında uygulayalım.
+
+using Microsoft.AspNetCore.Mvc;
+using catalog.Repositories;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using catalog.Dtos;
+
+namespace catalog.Controllers
+{
+    [ApiController]
+    [Route("items")]
+    public class ItemsController : ControllerBase
+    {
+        private readonly IItemsRepository repository;
+        public ItemsController(IItemsRepository repository)
+        {
+            this.repository = repository;
+        }
+
+        //GET /items
+        [HttpGet]
+        public IEnumerable<ItemDto> GetItems()
+        {
+            var items = repository.GetItems().Select(item => item.AsDto());
+            return items;
+        }
+
+        //GET items/{id}
+        [HttpGet("{id}")]
+        public ActionResult<ItemDto> GetItem(Guid id)
+        {
+            var item = repository.GetItem(id);
+
+            if (item is null)
+            {
+                return NotFound(); 
+            }
+            return item.AsDto();
+        }
+    }
+}
+
+SwaggerUI'da test edebiliriz.
+
+Schemas kısmında artık ItemDto yazdığını da görürüz.

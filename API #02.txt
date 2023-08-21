@@ -1,0 +1,155 @@
+Entity, Repository, Controller(GET) Kavramları
+
+Entity: catalog'umuzdaki item'leri temsil eden temel entity,
+Respository Class: Repository temel olarak veritabanı sorgulama işlemlerinin bir merkezden yapılmasını sağlayarak iş katmanına taşınmasını önler ve bu şekilde sorgu ve kod tekrarına engel olmuş olur.
+
+Controller(GET) ise REST API'ya gönderilen tüm isteklerle ilgilenir.
+
+Öncelikle projede bir anlam ifade etmeyen WeatherForecast.cs'i ve WeatherForecastController.cs'i silelim.
+
+Entities klasörünü ana dizinde oluşturalım. (Models ya da Domain klasörü olarakta oluşturulabilir)
+
+İçerisinde Item.cs'i oluşturalım.
+
+Ön Not: Record, bir objenin topyekün olarak sabit/değişmez olarak kalmasını sağlamakta ve bu durumu güvence altına almaktadır. Böylece bu obje, artık değeri değişmeyeceğinden dolayı esasında objeden ziyade bir değer gözüyle bakılan bir yapıya dönüşmektedir. Buradan yola çıkarak, record’ları içerisinde data barındıran lightweight(hafif) class’lar olarak değerlendirebiliriz. 
+
+Record’lar, class’lara istinaden objeden ziyade içerisinde bulunan dataları sabitleyerek varlığına nazaran verilerini/datalarını öne çıkarmakta ve böylece biz yazılımcılar açısından bir nüans sağlamaktadır.
+
+namespace catalog.Entities
+{
+    public record Item
+    {
+        public Guid Id { get; init; }
+        public string Name { get; init; }
+        public decimal Price { get; init;}
+        public DateTimeOffset CreatedDate { get; init; }
+    }
+}
+
+Ön Not 2: Init-Only Properties, nesnenin sadece ilk yaratılış anında propertylerine değer atamaktadır. Böylece, iş kuralları gereği runtime'da değeri değişmemesi gereken nesneler için ideal bir önlem alınmaktadır.
+
+---
+
+Şimdi sıra repository class'ımızı oluşturmakta. 
+(in charge of storing the items in the system)
+
+İşleri basit tutmak adına şimdilik in-memory repository kullanacağız.
+İleride veritabanına geçilecektir.
+
+Ana dizinde Repositories klasörü oluşturalım.
+İçine InMemItemsRepository.cs'i oluşturalım.
+
+Ön Not: C#’ta koleksiyon yahut array yapıları üzerinde periyodik bir düzende dönmemizi ve verileri bu şekilde tek tek elde etmemizi sağlayan foreach döngüsünün temel çalışma prensibi olan iterasyon mantığının kendi sınıflarımız üzerinde uygulayabiliriz. C#’ta iterasyon dendiğinde akla ilk olarak foreach döngüsü gelmektedir. Yani, bir sınıfa iterasyon özelliği kazandırabilirsek foreach döngüsü bu sınıfla etkileşime girebilecek iterasyonun periyoduna göre ilgili sınıf içerisinde belirlenen işlemleri gerçekleştirecek. Bir sınıfa iterasyon özelliklerini kazandırmak için gereken tüm özellikler IEnumerator interface’i aracılığıyla elde edilebilmektedir. IEnumerable interface’i ise bir sınıfa foreach mekanizması tarafından tanınması için gerekli yetenekleri/nitelikleri kazandırır. Yani enumerator yapısını.
+
+namespace catalog.Repositories
+{
+    public class InMemItemsRepository
+    {
+        private readonly List<Item> items = new()
+        {
+            new Item { Id = Guid.NewGuid(), Name = "Potion", Price = 9, CreatedDate = DateTimeOffset.UtcNow },
+            new Item { Id = Guid.NewGuid(), Name = "Iron Sword", Price = 20, CreatedDate = DateTimeOffset.UtcNow },
+            new Item { Id = Guid.NewGuid(), Name = "Bronze Shield", Price = 18, CreatedDate = DateTimeOffset.UtcNow },
+        };
+        //IEnumerable is a basic interface that we can use to return
+        //a collection of items.
+
+        //tüm item'ları alalım.
+        public IEnumerable<Item> GetItems()
+        {
+            return items;
+        }
+        //id ile spesific bir item'ı alalım.
+        public Item <Item> GetItem(Guid id)
+        {
+            return items.Where(item => item.Id == id).SingleOrDefault();
+        }
+    }
+}
+
+---
+
+Şimdi ise Controller'ımızı oluşturalım.
+
+Controllers klasörünün içerisinde ItemsControllers.cs'i oluşturalım.
+
+using Microsoft.AspNetCore.Mvc;
+using catalog.Repositories;
+using catalog.Entities;
+using System.Collections.Generic;
+using System;
+
+namespace catalog.Controllers
+{
+    [ApiController]
+    [Route("items")]
+    public class ItemsController : ControllerBase
+    {
+        private readonly InMemItemsRepository repository;
+        public ItemsController()
+        {
+            repository = new InMemItemsRepository();
+        }
+
+        //GET /items
+        [HttpGet]
+        public IEnumerable<Item> GetItems()
+        {
+            var items = repository.GetItems();
+            return items;
+        }
+
+        //GET items/{id}
+        [HttpGet("{id}")]
+        public ActionResult<Item> GetItem(Guid id)
+        //ActionResult bize birden fazla type dönmemizde yardımcı olur.
+        {
+            var item = repository.GetItem(id);
+
+            //Guid ile her execute ettiğimizde farklı id atanacağından
+            //items/{id}'yi execute ettiğimizde null hatası almak yerine
+            //düzgün bir 404 Error'u almak için aşağıdaki gibi düzenleme
+            //yapabiliriz.
+            if (item is null)
+            {
+                return NotFound(); 
+            }
+            return Ok(item);
+        }
+    }
+}
+
+SwaggerUI'dan GET /items'a istek atıp execute ettiğimizde ekranda;
+curl -X GET "https://localhost:5001/items" -H  "accept: text/plain"
+
+Response body
+
+[
+  {
+    "id": "ada7cbb8-d328-4708-a818-3786c8667936",
+    "name": "Potion",
+    "price": 9,
+    "createdDate": "2023-08-18T08:46:37.3159605+00:00"
+  },
+  {
+    "id": "1666a441-f868-4191-9255-f4d816ffd027",
+    "name": "Iron Sword",
+    "price": 20,
+    "createdDate": "2023-08-18T08:46:37.3159917+00:00"
+  },
+  {
+    "id": "fa015009-a115-4b13-8810-e36d2e37339c",
+    "name": "Bronze Shield",
+    "price": 18,
+    "createdDate": "2023-08-18T08:46:37.3159931+00:00"
+  }
+]
+
+çalıştığını görebiliriz.
+
+Ayrıca 
+/items/{id} 'ye de istek atarak id'ye göre,
+https://localhost:5001/items/bff68ccc-4b53-444d-9e44-7bc5d43bd492
+gibi request atılıp uygun response'un dönüp dönmediğini görebiliriz.
+
+

@@ -1,0 +1,201 @@
+dotnet new webapi -n catalog -f net5.0
+
+ile projeyi oluşturalım.
+
+catalog.csproj'a bakalım.
+
+<Project Sdk="Microsoft.NET.Sdk.Web"> //tasks to build ASP.NET Core apps
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework> //the set of APIs available to the app
+  </PropertyGroup>
+
+	//dependencies
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="5.6.3" />
+  </ItemGroup>
+
+</Project>
+
+---
+
+Program.cs ise uygulamanın giriş noktasıdır.
+
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
+
+namespace catalog
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            CreateHostBuilder(args).Build().Run();
+        }
+
+        public static IHostBuilder CreateHostBuilder(string[] args) =>
+            Host.CreateDefaultBuilder(args)
+                .ConfigureWebHostDefaults(webBuilder => //host condifguration
+                {
+                    webBuilder.UseStartup<Startup>(); //
+                });
+    }
+}
+
+Startup.cs
+
+Bir web api projesi oluşturduğumuzda, uygulamamız için gerekli ayarları yapabilmemiz için Startup.cs dosyasındaki Startup class'ı varsayılan ayarlar ile kurulu olarak oluşturulur. Bu class içerisindeki ayarlar ile uygulamamızın nasıl davranacağını, hangi bileşenleri kullanacağını belirtmiş oluruz.
+
+Bir dotnet uygulaması ayağa kalktığında ilk olarak Program.cs çalışır. Çünkü dotnet core yani dotnet5 aynı zamanda bir console uygulamasıdır. Bildiğiniz üzere bir console uygulamasında da ilk olarak Program.cs çalışır. O nedenle uygulama içerisinde kullanılacak konfigurasyon dosyasının ne olacağı bu noktada uygulamaya gösterilir. Bu da Startup.cs dosyasıdır.
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi.Models;
+
+namespace catalog
+{
+    public class Startup
+    {
+        public Startup(IConfiguration configuration)
+        {
+            Configuration = configuration;
+        }
+
+        public IConfiguration Configuration { get; }
+
+		/*
+		ConfigureServices() : Bu metot aracılığı ile uygulamamızın içerisinde kullanacağımız bileşenlerin ayarlarını yapabiliriz. ConfigureServices metodu içerisinde uygulamanın kullanacağı servisler eklenir ve konfigüre edilir. Servisleriyse belli bir işi yapmaktan sorumlu kod parçaları, sınıflar yada kütüphaneler gibi düşünebilirsiniz.
+		*/
+        public void ConfigureServices(IServiceCollection services)
+        {
+
+            services.AddControllers();
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "catalog", Version = "v1" });
+            });
+        }
+
+		/*
+		Configure() : Bu metot uygulamamıza gelen HTTP isteklerini hangi aşamalardan geçirerek bir HTTP cevabı oluşturacağımızı belirttiğimiz metottur. Startup içerisinde bu metodun doldurulması ve doğru ayarlarlanması gereklidir. 
+		Middleware'ler kullanılarak uygulama içerisinde bir pipeline oluşturulur. İşte bu pipeline configure() dosyası içerisinde belirlenir.
+		Not: İş Hattı (pipeline) birden fazla işin paralel olarak aynı anda yürütülmesidir. 
+		*/
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+                app.UseSwagger();
+                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "catalog v1"));
+            }
+
+            app.UseHttpsRedirection();
+
+            app.UseRouting();
+
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+            });
+        }
+    }
+}
+
+---
+
+WeatherForecast.cs ise auto-generated model'dir.
+
+using System;
+
+namespace catalog
+{
+    public class WeatherForecast
+    {
+        public DateTime Date { get; set; }
+
+        public int TemperatureC { get; set; }
+
+        public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+
+        public string Summary { get; set; }
+    }
+}
+
+Bunun dışında Controllers klasörünün altında WeatherForecastController.cs vardır.
+
+Web Api controller yapısı gereği Mvc projelerindeki controller'lara benzer. Web Api controller gelen HTTP isteklerini karşılar ve istemciye cevap döndürmektedir. Web Api controller'lar genelde projenin Controllers klasörü altında bulunan sınıf tanımlarıdır.
+
+---
+
+appsettings.json dosyası .NET Core uygulamalarında yapılandırma araçlarından birisidir. Yapılandırma bir uygulamanın herhangi bir ortamda gerçekleştireceği davranışları belirlememizi sağlayan statik değerin tanımlanmasıdır.
+
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+  "AllowedHosts": "*"
+}
+
+Best practices açısından kodun içerisine username, password, connection string gibi statik tanımlamalar yapılmamalıdır.
+
+appsettings.Development.json ise;
+
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  }
+}
+
+Development environment'ında çalıştığımızı gösterir. appsettings.json dosyası üzerinde üstünlüğü vardır.
+
+---
+
+Uygulamamızın VS Code ile birlikte açılması için (F5) ve uygulamamızı debug edebilmek için launch.json ve tasks.json dosyalarının oluşturulmasına ihtiyacımız vardır.
+
+---
+
+Properties klasörünün altında launchSettings.json vardır.
+
+launchSettings.json dosyası sadece local‘de development yaparken kullanılan bir dosyadır. Visual Studio veya dotnet cli ile birlikte kullanılır.
+
+Not: Eğer uygulamamızı sunucuyu deploy ettikten sonra ulaşmak istediğimiz ayarlar var ise bunun belirtilmesi gereken yer launchSettings.json dosyası değildir. Bu tür ayarlar genelde appSettings.json dosyası içerisinde tanımlanır.
+
+"applicationUrl": "https://localhost:5001;http://localhost:5000",
+
+uygulamanın hangi http ya da https adresinde dinleneceğini görürüz.
+
+---
+
+dotnet dev-certs https --trust ile ekrana gelecek hatayı giderelim.
+
+https://localhost:5001/swagger/index.html'e gidelim.
+
+Swagger UI, oluşturduğumuz API'lar ile ilgili bilgileri görselleştirmemiz ve otomatik dökümantasyon oluşturabilmemize yarayan yardımcı bir arayüzdür. Bu arayüz sayesinde web api projemizde hangi resource'lara sahip olduğumuzu ve bu resourcelarla ilgili hangi eylemleri yapabileceğimizle ilgili bir dökümantasyon oluşturmuş oluruz. Bu sayede hem ekip içindeki, hem de API'mizi kullanacak diğer geliştirici arkadaşların bilgi sahibi olmasını sağlamış oluruz.
+
+Bir .net core web api projesi yarattığımızda proje içerisine varsayılan olarak swagger ui eklentisi eklenmiş olarak gelir. Development ortamında çalışan uygulama için varsayılan olarak https://localhost:5001/swagger/index.html adresinden erişilebilir.
+
+GET /WeatherForecast -> Try it out -> Execute'a tıkladığımızda bu rota için bazı response'lar görmüş oluruz.
+
+Not: Her çalıştırdığımızda yeni bir sayfa açılmasın istiyorsak launch.json'da
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+            },
+kısmını silebiliriz.
+
+---
+
